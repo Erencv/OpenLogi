@@ -259,7 +259,10 @@ pub(super) async fn arm_controls_into(
             info: wheel_info,
         });
         if let Some(thumb) = armed.thumb.as_ref() {
-            thumb.wheel.divert(thumb.direction()).await?;
+            let direction = thumb.direction();
+            debug!(?direction, feature_index = info.index, "diverting thumbwheel reports");
+            thumb.wheel.divert(direction).await?;
+            debug!(feature_index = info.index, "thumbwheel reports diverted");
         }
     }
     Ok(())

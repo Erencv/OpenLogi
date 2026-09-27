@@ -39,8 +39,8 @@ pub struct HookMaps {
     pub(crate) pointer_target: Option<openlogi_hook::PointerTarget>,
     /// Device whose binding maps this snapshot contains.
     #[cfg_attr(
-        not(any(target_os = "windows", test)),
-        expect(dead_code, reason = "read only by the Windows native-wheel fallback")
+        not(any(target_os = "macos", target_os = "windows", test)),
+        expect(dead_code, reason = "read only by the native-wheel fallback")
     )]
     pub(crate) selected_device: Option<String>,
     /// Per-device `0x2150 default_dir`, learned by HID++ capture sessions:
@@ -486,8 +486,14 @@ pub fn start(
                     from_trackpad,
                     device,
                 } => {
-                    #[cfg(target_os = "windows")]
-                    if delta.y() == 0.0
+                    // Bluetooth-direct MX mice can expose the thumb wheel as
+                    // a native horizontal scroll event even when HID++
+                    // diversion is unavailable.  Windows already has this
+                    // fallback; macOS must handle it too or a configured
+                    // thumb-wheel action is silently passed through.
+                    #[cfg(any(target_os = "macos", target_os = "windows"))]
+                    if !from_trackpad
+                        && delta.y() == 0.0
                         && let Some((button, action, target)) =
                             hooks.try_read().ok().and_then(|maps| {
                                 rebound_thumbwheel_action(&maps, delta.x())
@@ -495,6 +501,18 @@ pub fn start(
                             })
                     {
                         info!(button = %button, action = %action.label(), "native thumb wheel → executing bound action");
+                        #[cfg(target_os = "macos")]
+                        if let Action::CustomShortcut(combo) = &action
+                            && matches!(combo.rendered_label().as_str(), "Cmd+." | "Cmd+-")
+                        {
+                            let magnification = if button == ButtonId::ThumbwheelScrollUp {
+                                0.05
+                            } else {
+                                -0.05
+                            };
+                            openlogi_inject::post_zoom(magnification, "thumbwheel");
+                            return EventDisposition::Suppress;
+                        }
                         return queued_event_disposition(try_queue_action(
                             &action_tx,
                             action,
@@ -538,13 +556,16 @@ pub fn start(
 /// physical wheel stays native unless the user changed that direction. On
 /// devices exposing `0x2150`, the learned `default_dir` determines which
 /// physical direction the native delta represents. A selected device whose
-/// polarity has not arrived yet fails open instead of guessing the opposite
-/// action; only the legacy no-device-context path retains the MX Master 2S
-/// fallback (positive is physical backward/down).
-#[cfg(any(target_os = "windows", test))]
+/// polarity has not arrived yet uses the legacy MX Master polarity (positive
+/// is physical backward/down) so direct Bluetooth can use this fallback.
+#[cfg(any(target_os = "macos", target_os = "windows", test))]
 fn rebound_thumbwheel_action(maps: &HookMaps, delta_x: f64) -> Option<(ButtonId, Action)> {
     let positive_is_forward = match maps.selected_device.as_deref() {
-        Some(key) => maps.thumbwheel_positive_is_forward.get(key).copied()?,
+        Some(key) => maps
+            .thumbwheel_positive_is_forward
+            .get(key)
+            .copied()
+            .unwrap_or(false),
         None => false,
     };
     let forward = if delta_x > 0.0 {

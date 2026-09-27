@@ -437,7 +437,7 @@ fn rebound_horizontal_wheel_uses_the_selected_devices_polarity() {
 }
 
 #[test]
-fn rebound_horizontal_wheel_does_not_guess_a_selected_devices_polarity() {
+fn rebound_horizontal_wheel_uses_legacy_polarity_until_device_is_learned() {
     let maps = HookMaps {
         bindings: BTreeMap::from([
             (ButtonId::ThumbwheelScrollUp, Action::NextTab.into()),
@@ -446,8 +446,14 @@ fn rebound_horizontal_wheel_does_not_guess_a_selected_devices_polarity() {
         selected_device: Some("not-learned-yet".to_owned()),
         ..HookMaps::default()
     };
-    assert_eq!(rebound_thumbwheel_action(&maps, 1.0), None);
-    assert_eq!(rebound_thumbwheel_action(&maps, -1.0), None);
+    assert_eq!(
+        rebound_thumbwheel_action(&maps, 1.0),
+        Some((ButtonId::ThumbwheelScrollDown, Action::PrevTab))
+    );
+    assert_eq!(
+        rebound_thumbwheel_action(&maps, -1.0),
+        Some((ButtonId::ThumbwheelScrollUp, Action::NextTab))
+    );
 }
 
 #[test]

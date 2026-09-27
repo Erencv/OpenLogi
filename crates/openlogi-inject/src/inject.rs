@@ -448,6 +448,14 @@ pub fn post_scroll(delta: ScrollDelta) {
     }
 }
 
+/// Emit a native macOS magnification gesture step.
+#[cfg(target_os = "macos")]
+pub fn post_zoom(magnification: f64, source: &str) {
+    if magnification.is_finite() && magnification != 0.0 {
+        macos::post_zoom(magnification, source);
+    }
+}
+
 /// Lifecycle phase of one synthetic smooth-scroll frame.
 ///
 /// macOS forwards this state to the scroll-wheel event so applications see a

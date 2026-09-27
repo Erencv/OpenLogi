@@ -1,5 +1,8 @@
 //! Platform helpers for synthesising OS-level input events on macOS.
 
+use std::sync::{LazyLock, Mutex};
+use std::time::{Duration, Instant};
+
 use core_graphics::event::{
     CGEvent, CGEventFlags, CGEventTapLocation, CGEventType, CGMouseButton, EventField,
 };
@@ -59,6 +62,65 @@ use dock::{app_expose, launchpad, mission_control, show_desktop};
 use scroll::dispatch_scroll;
 pub(super) use scroll::{post_scroll, post_smooth_scroll};
 use symbolic_hotkey::{next_desktop, previous_desktop};
+
+const GESTURE_EVENT_TYPE: u32 = 55;
+const GESTURE_HID_TYPE: u32 = 110;
+const GESTURE_MAGNIFICATION: u32 = 113;
+const GESTURE_PHASE: u32 = 132;
+const NSEVENT_TYPE_GESTURE: i64 = 29;
+const IOHID_EVENT_TYPE_ZOOM: i64 = 8;
+const GESTURE_PHASE_BEGAN: i64 = 1;
+const GESTURE_PHASE_CHANGED: i64 = 2;
+const GESTURE_PHASE_ENDED: i64 = 4;
+const ZOOM_IDLE: Duration = Duration::from_millis(200);
+
+static ZOOM_GESTURE: LazyLock<Mutex<ZoomGesture>> = LazyLock::new(|| Mutex::new(ZoomGesture::default()));
+
+#[derive(Default)]
+struct ZoomGesture {
+    last_step: Option<Instant>,
+    watchdog: bool,
+}
+
+pub(super) fn post_zoom(magnification: f64, _source: &str) {
+    let Ok(mut gesture) = ZOOM_GESTURE.lock() else {
+        tracing::warn!("macOS zoom gesture mutex poisoned");
+        return;
+    };
+    if gesture.last_step.is_none() {
+        post_magnification(0.0, GESTURE_PHASE_BEGAN);
+    }
+    post_magnification(magnification, GESTURE_PHASE_CHANGED);
+    gesture.last_step = Some(Instant::now());
+    if !gesture.watchdog {
+        gesture.watchdog = true;
+        std::thread::spawn(|| loop {
+            std::thread::sleep(ZOOM_IDLE);
+            let Ok(mut gesture) = ZOOM_GESTURE.lock() else { return };
+            let Some(last) = gesture.last_step else {
+                gesture.watchdog = false;
+                return;
+            };
+            if last.elapsed() >= ZOOM_IDLE {
+                post_magnification(0.0, GESTURE_PHASE_ENDED);
+                gesture.last_step = None;
+                gesture.watchdog = false;
+                return;
+            }
+        });
+    }
+}
+
+fn post_magnification(magnification: f64, phase: i64) {
+    let Ok(src) = CGEventSource::new(CGEventSourceStateID::HIDSystemState) else { return };
+    let Ok(event) = CGEvent::new(src) else { return };
+    event.set_integer_value_field(GESTURE_EVENT_TYPE, NSEVENT_TYPE_GESTURE);
+    event.set_integer_value_field(GESTURE_HID_TYPE, IOHID_EVENT_TYPE_ZOOM);
+    event.set_integer_value_field(GESTURE_PHASE, phase);
+    event.set_double_value_field(GESTURE_MAGNIFICATION, magnification);
+    tag_synthetic(&event);
+    event.post(CGEventTapLocation::HID);
+}
 
 // NX_KEYTYPE_* constants from <IOKit/hidsystem/ev_keymap.h>.
 const NX_KEYTYPE_SOUND_UP: i32 = 0;

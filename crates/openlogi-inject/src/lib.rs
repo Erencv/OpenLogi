@@ -7,5 +7,8 @@ pub use inject::{
     post_scroll, post_smooth_scroll, press_hold,
 };
 
+#[cfg(target_os = "macos")]
+pub use inject::post_zoom;
+
 #[cfg(target_os = "linux")]
 pub use inject::action_device_path;

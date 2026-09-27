@@ -44,7 +44,12 @@ impl ActionDispatchTarget {
     }
 
     fn for_pointer(target: Option<openlogi_hook::PointerTarget>) -> Self {
-        target.map_or_else(Self::capture, Self::Pointer)
+        match target {
+            Some(openlogi_hook::PointerTarget::Unavailable)
+            | Some(openlogi_hook::PointerTarget::Unsupported)
+            | None => Self::capture(),
+            Some(target) => Self::Pointer(target),
+        }
     }
 }
 /// Held output owned by accepted press capabilities rather than by a capture

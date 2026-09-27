@@ -180,13 +180,22 @@ pub fn plan_for_device(
             .is_some_and(|binding| binding.click_action() != default_binding(*button))
     });
     let thumbwheel_sensitivity = config.thumbwheel_sensitivity(config_key);
+    let capture_thumbwheel = thumbwheel_sensitivity != ThumbwheelSensitivity::DEFAULT
+        || thumbwheel_bindings_nondefault;
+    // Direct Bluetooth MX mice expose native horizontal scroll reliably on
+    // macOS, while diverted HID++ thumbwheel reports are not delivered.
+    #[cfg(target_os = "macos")]
+    let capture_thumbwheel = if matches!(&route, DeviceRoute::Direct { .. }) {
+        false
+    } else {
+        capture_thumbwheel
+    };
     DeviceCapturePlan {
         target: CaptureTarget {
             physical_key,
             route,
             spec: CaptureSpec {
-                capture_thumbwheel: thumbwheel_sensitivity != ThumbwheelSensitivity::DEFAULT
-                    || thumbwheel_bindings_nondefault,
+                capture_thumbwheel,
                 divert_gesture_sources: GESTURE_SOURCE_BUTTONS
                     .into_iter()
                     .filter(|(_, button)| gesture_bindings.contains_key(button))

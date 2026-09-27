@@ -28,7 +28,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 use hidpp::protocol::v20;
 use openlogi_core::binding::{ButtonId, GestureDirection};
 use tokio::sync::mpsc;
-use tracing::info;
+use tracing::{debug, info};
 
 use crate::SharedChannel;
 use crate::channel::route::DeviceRoute;
@@ -254,10 +254,23 @@ impl ArmedCapture for GestureCapture {
                 return;
             }
             if let Some(idx) = thumb_index
-                && let Some(event) = thumbwheel::decode_event(msg, device_index, idx)
-                && let Some(input) = thumbwheel_input(event, thumb_resolution)
             {
-                let _ = sink.send(input);
+                let header = msg.header();
+                debug!(
+                    device_index,
+                    feature_index = idx,
+                    report_device = header.device_index,
+                    report_feature = header.feature_index,
+                    report_function = header.function_id.to_lo(),
+                    report_software = header.software_id.to_lo(),
+                    "thumbwheel candidate report"
+                );
+                if let Some(event) = thumbwheel::decode_event(msg, device_index, idx) {
+                    debug!(?event, "thumbwheel event decoded");
+                    if let Some(input) = thumbwheel_input(event, thumb_resolution) {
+                        let _ = sink.send(input);
+                    }
+                }
             }
         }
     }
